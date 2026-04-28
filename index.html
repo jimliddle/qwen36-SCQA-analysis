@@ -1,0 +1,896 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Qwen3.6-27B Dashboard</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+
+  <script crossorigin src="https://unpkg.com/prop-types@15.8.1/prop-types.min.js"></script>
+
+  <script crossorigin src="https://unpkg.com/recharts@2.12.7/umd/Recharts.js"></script>
+
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace'],
+          }
+        }
+      }
+    }
+  </script>
+
+  <style>
+    body {
+      background-color: #020617; /* Tailwind slate-950 */
+      color: #f1f5f9; /* Tailwind slate-100 */
+      margin: 0;
+      padding: 0;
+    }
+    /* Custom Scrollbar for better dark mode aesthetic */
+    ::-webkit-scrollbar {
+      width: 8px;
+      height: 8px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #0f172a; 
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #334155; 
+      border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #475569; 
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    // Global Destructuring
+    const { useState, useMemo, useEffect } = React;
+    const { 
+      BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
+      Cell, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, 
+      Legend, ReferenceLine, LineChart, Line 
+    } = Recharts;
+
+    // Verified April 23 2026
+    // Sources: Hugging Face Qwen/Qwen3.6-27B model card, MarkTechPost, buildfastwithai.com,
+    // willitrunai.com, startupfortune.com, qubrid.com, simonwillison.net
+
+    const TABS = [
+      { id: 'scqa',      label: 'SCQA Summary' },
+      { id: 'timeline',  label: 'Efficiency Race' },
+      { id: 'tradeoff',  label: 'Hardware Planner' },
+      { id: 'heatmap',   label: 'Use Case Heatmap' },
+      { id: 'inventory', label: 'Model Inventory' },
+      { id: 'vs',        label: 'Qwen vs Gemma 4' },
+    ];
+
+    // ── BENCHMARK DATA ─────────────────────────────────────────────────────────────
+    const BENCHMARKS = [
+      {
+        bench: 'AIME 2026 (maths)', category: 'Reasoning',
+        qwen36: 94.1, gemma4_31b: 89.2, claude45opus: null, qwen35_397b: 88.5,
+        note: 'Full AIME 2026 (I + II). Qwen3.6-27B highest open-weight score verified.',
+      },
+      {
+        bench: 'GPQA Diamond (science)', category: 'Reasoning',
+        qwen36: 87.8, gemma4_31b: 84.3, claude45opus: 87.0, qwen35_397b: 85.0,
+        note: 'Graduate-level scientific reasoning. Qwen3.6-27B outperforms Claude 4.5 Opus.',
+      },
+      {
+        bench: 'MMLU Pro (knowledge)', category: 'General',
+        qwen36: 86.2, gemma4_31b: 85.2, claude45opus: null, qwen35_397b: 84.1,
+        note: 'Broad knowledge baseline. All three dense models cluster tightly.',
+      },
+      {
+        bench: 'SWE-bench Verified (coding)', category: 'Coding',
+        qwen36: 77.2, gemma4_31b: null, claude45opus: 80.9, qwen35_397b: 76.2,
+        note: 'Internal agent scaffold (Alibaba). Also conflates architecture type and training generation - Qwen3.5 vs Qwen3.6. Terminal-Bench 2.0 on the public harness is the more independently verifiable result.',
+      },
+      {
+        bench: 'SWE-bench Pro (coding)', category: 'Coding',
+        qwen36: 53.5, gemma4_31b: null, claude45opus: null, qwen35_397b: 50.9,
+        note: 'Harder coding subset. Qwen3.6-27B beats the larger MoE model.',
+      },
+      {
+        bench: 'Terminal-Bench 2.0 (agent)', category: 'Agentic',
+        qwen36: 59.3, gemma4_31b: null, claude45opus: 59.3, qwen35_397b: 52.5,
+        note: 'Autonomous terminal task completion. Matches Claude 4.5 Opus exactly.',
+      },
+      {
+        bench: 'SkillsBench (coding skills)', category: 'Coding',
+        qwen36: 48.2, gemma4_31b: null, claude45opus: null, qwen35_397b: 30.0,
+        note: '60% improvement over the 397B predecessor. Largest relative jump.',
+      },
+      {
+        bench: 'VideoMME (video understanding)', category: 'Multimodal',
+        qwen36: 87.7, gemma4_31b: null, claude45opus: 77.7, qwen35_397b: null,
+        note: 'Video understanding benchmark. Qwen3.6-27B leads Claude 4.5 Opus by 10 points.',
+      },
+      {
+        bench: 'τ2-bench (agentic tool use)', category: 'Agentic',
+        qwen36: null, gemma4_31b: 86.4, claude45opus: null, qwen35_397b: null,
+        note: 'Gemma 4 reference only - Qwen3.6 not benchmarked here as of April 23 2026.',
+      },
+    ];
+
+    // ── HARDWARE CONFIGS ──────────────────────────────────────────────────────────
+    const HW_CONFIGS = [
+      {
+        quant: 'BF16 (full precision)', vram: 55.6, speed: 18, quality: 100,
+        hardware: '2x RTX 4090 (48GB) or A100 80GB',
+        useCase: 'Research, production server, fine-tuning baseline',
+        note: 'Maximum quality. Full 55.6GB model. Not practical on single consumer GPU.',
+        viable: true,
+      },
+      {
+        quant: 'FP8 (fine-grained)', vram: 28, speed: 35, quality: 98,
+        hardware: 'RTX 4090 24GB (tight) or A10G 24GB',
+        useCase: 'Production server with quality close to BF16',
+        note: 'Official FP8 checkpoint available on Hugging Face. Qwen3.6-27B-FP8.',
+        viable: true,
+      },
+      {
+        quant: 'Q8_0', vram: 28.6, speed: 32, quality: 97,
+        hardware: 'RTX 4090 24GB + overflow RAM or A10G',
+        useCase: 'Near-full quality on single high-end GPU',
+        note: 'Marginal improvement over Q6 at significant VRAM cost. FP8 often preferred.',
+        viable: true,
+      },
+      {
+        quant: 'Q6_K', vram: 22.5, speed: 45, quality: 95,
+        hardware: 'RTX 4090 24GB (comfortable)',
+        useCase: 'High quality on single consumer GPU',
+        note: 'Recommended if you have a 24GB card and want quality above Q4.',
+        viable: true,
+      },
+      {
+        quant: 'Q4_K_M (recommended)', vram: 16.8, speed: 60, quality: 90,
+        hardware: 'RTX 4080 16GB (tight), RTX 4090 24GB (comfortable), Mac 24GB+',
+        useCase: 'Best performance-per-GB. The daily driver for most developers.',
+        note: 'Community consensus: Q4_K_M or UD-Q4_K_XL. ~80 tok/s on RTX 5090. 25 tok/s in llama.cpp on consumer hardware. CAUTION: avoid CUDA 13.2 (produces gibberish as of April 2026) - use CUDA 12.x or 13.1.',
+        viable: true,
+      },
+      {
+        quant: 'Q3_K_M', vram: 13.5, speed: 70, quality: 83,
+        hardware: 'RTX 3090 Ti 24GB, RTX 4070 Ti 12GB (usable)',
+        useCase: 'Systems with 12-16GB VRAM that cannot run Q4 comfortably',
+        note: 'Meaningful quality drop on complex reasoning tasks. Use Q4 if at all possible.',
+        viable: true,
+      },
+      {
+        quant: 'Q2_K', vram: 10.5, speed: 80, quality: 70,
+        hardware: 'RTX 3080 10GB, RTX 4070 12GB',
+        useCase: 'Last resort for constrained hardware',
+        note: 'Significant reasoning degradation. Coding quality drops measurably. Use only if no alternative.',
+        viable: false,
+      },
+    ];
+
+    // ── DEPLOYMENT SCENARIOS ──────────────────────────────────────────────────────
+    const SCENARIOS = [
+      {
+        scenario: 'Agentic coding agent', model: 'qwen',
+        coding: 10, reasoning: 9, context: 9, privacy: 10, cost: 9, multimodal: 6,
+        setup: 'Q4_K_M on RTX 4090 or equivalent. Point Cursor, Windsurf, or Aider at a local vLLM or llama.cpp server (OpenAI-compatible endpoint). SWE-bench Verified 77.2% - the best open-weight coding agent available locally at this hardware tier.',
+        verdict: 'Primary use case',
+      },
+      {
+        scenario: 'Long-context code review (full repo)', model: 'qwen',
+        coding: 10, reasoning: 9, context: 10, privacy: 10, cost: 9, multimodal: 5,
+        setup: '262K context natively (1M via YaRN). Ingest an entire repository in a single call. Dense architecture means no MoE routing overhead on long sequences. Thinking Preservation keeps reasoning coherent across multi-turn review sessions.',
+        verdict: 'Primary use case',
+      },
+      {
+        scenario: 'Frontend / UI code generation', model: 'qwen',
+        coding: 9, reasoning: 8, context: 7, privacy: 10, cost: 9, multimodal: 8,
+        setup: 'QwenWebBench 1487 - 39% jump from prior generation. Covers web design, web apps, games, SVG, data visualisation, animation, and 3D. Native vision input to generate code matching a provided design screenshot.',
+        verdict: 'Primary use case',
+      },
+      {
+        scenario: 'Video understanding + code', model: 'qwen',
+        coding: 7, reasoning: 8, context: 8, privacy: 9, cost: 8, multimodal: 10,
+        setup: 'VideoMME 87.7% - 10 points ahead of Claude 4.5 Opus. Ingest a screen recording or product walkthrough, generate or review code from video context. Unique capability not available in Gemma 4.',
+        verdict: 'Strong fit',
+      },
+      {
+        scenario: 'Multi-turn agent with memory', model: 'qwen',
+        coding: 9, reasoning: 9, context: 9, privacy: 10, cost: 9, multimodal: 6,
+        setup: 'Thinking Preservation retains chain-of-thought across turns, eliminating redundant re-derivation of context in iterative coding sessions. Each turn builds on the previous reasoning trace rather than starting cold.',
+        verdict: 'Strong fit',
+      },
+      {
+        scenario: 'General agentic tool use', model: 'gemma',
+        coding: 7, reasoning: 8, context: 8, privacy: 10, cost: 9, multimodal: 7,
+        setup: 'Gemma 4 31B τ2-bench 86.4% is the reference for general agentic tool use. Qwen3.6-27B is not yet benchmarked on τ2-bench (April 23 2026). For non-coding agentic workflows, Gemma 4 is the better-evidenced choice until comparable data exists.',
+        verdict: 'Use Gemma 4',
+      },
+      {
+        scenario: 'Frontier reasoning (hardest)', model: 'closed',
+        coding: 10, reasoning: 10, context: 9, privacy: 2, cost: 2, multimodal: 9,
+        setup: 'Claude 4.5 Opus SWE-bench Verified 80.9% - still 3.7 points above Qwen3.6-27B on this benchmark. For the hardest software engineering tasks where that gap matters, the closed API remains the ceiling.',
+        verdict: 'Hybrid recommended',
+      },
+    ];
+
+    // ── ARCHITECTURE FEATURES ─────────────────────────────────────────────────────
+    const ARCH_FEATURES = [
+      {
+        name: 'Gated DeltaNet (linear attention)',
+        desc: '3 of every 4 sublayers across 64 layers use Gated DeltaNet - a linear attention mechanism with O(n) complexity rather than standard attention\'s O(n²). At long context lengths this dramatically reduces memory and compute cost vs a pure standard-attention dense model of equivalent size. The 1-in-4 standard Gated Attention layers handle the global dependency patterns that linear attention handles less precisely.',
+      },
+      {
+        name: 'Thinking Preservation',
+        desc: 'Standard reasoning models generate and then discard their chain-of-thought at each turn - the next message starts from scratch. Qwen3.6-27B can optionally carry its full reasoning trace forward across conversation turns. In an iterative coding session spanning dozens of turns on the same codebase, this eliminates repeated re-derivation of context the model has already worked through, cutting token costs and improving consistency across the session.',
+      },
+      {
+        name: 'Multi-Token Prediction (MTP)',
+        desc: 'Speculative decoding support via the SGLang framework. The model predicts multiple tokens in parallel using a draft-and-verify approach (3 speculative steps, 4 draft tokens per step in the recommended config). This meaningfully increases effective throughput on hardware where memory bandwidth is the constraint rather than compute.',
+      },
+      {
+        name: 'YaRN context extension',
+        desc: 'Native context window is 262,144 tokens. YaRN (Yet another RoPE extension) extends this to 1,010,000 tokens. The KV cache at full 1M-token context consumes an additional 20-40GB of memory beyond the model weights - plan hardware accordingly. For most coding tasks the native 262K window is sufficient.',
+      },
+      {
+        name: 'Integrated vision encoder',
+        desc: 'Text, images, and video are handled by a single unified checkpoint - no separate vision adapter. Video is processed as a sequence of frames. VideoMME score of 87.7% exceeds Claude 4.5 Opus by 10 points, suggesting the vision training data and architecture integration is unusually strong for a model at this size.',
+      },
+      {
+        name: 'Native tool calling (qwen3_coder)',
+        desc: 'OpenAI-compatible function calling via the qwen3_coder parser in SGLang and vLLM. Directly integrable with Cursor, Windsurf, and Aider via a local OpenAI-compatible API server. No adapter or prompt engineering required - the function calling behaviour is baked into the weights.',
+      },
+    ];
+
+    // ── COMPARISON DATA (Qwen3.6-27B vs Gemma 4 family) ─────────────────────────
+    const VS_DIMS = ['Coding (SWE-bench)', 'Maths (AIME 2026)', 'Science (GPQA)', 'General (MMLU Pro)', 'Agentic Tool Use', 'Video Understanding', 'Context Window', 'Min VRAM (Q4)', 'Inference Simplicity', 'Thinking Preservation'];
+
+    // Scores 0-10 normalised for radar
+    const VS_SCORES = {
+      'Qwen3.6-27B':   [9.5, 9.4, 9.2, 8.6, null, 9.5, 9.0, 8.5, 8, 10],
+      'Gemma 4 31B':   [7.0, 8.9, 8.4, 8.5, 9.5, null, 8.5, 5.5, 9, 0],
+      'Gemma 4 26B MoE':[6.5, 8.8, 8.2, 8.4, 8.3, null, 8.5, 9.0, 7, 0],
+    };
+
+    const VS_COLORS = {
+      'Qwen3.6-27B':    '#dc2626',
+      'Gemma 4 31B':    '#7c3aed',
+      'Gemma 4 26B MoE':'#2563eb',
+    };
+
+    const TIMELINE_EVENTS = [
+      { date: '2024-Q4', actor: 'Industry', event: 'Parameter count remains the dominant signal for model quality. Larger total parameters assumed to mean better outputs. MoE models gain popularity as a way to increase total params without proportional inference cost.', category: 'Parameter Era' },
+      { date: '2025-Jan', actor: 'DeepSeek', event: 'DeepSeek R1 demonstrates near-frontier reasoning at a fraction of US lab training cost. The first clear empirical break from the assumption that frontier performance requires frontier spending.', category: 'Efficiency Era' },
+      { date: '2025-Q1', actor: 'Alibaba Qwen', event: 'Qwen3.5 family released. The 397B-A17B MoE becomes the open-weight leader on coding benchmarks - 17B active parameters with 397B total weight knowledge. At 807GB on Hugging Face, practical only for well-resourced teams.', category: 'MoE Peak' },
+      { date: '2025-Q2', actor: 'Google DeepMind', event: 'Gemma 4 released under Apache 2.0. τ2-bench jumps from 6.6% to 86.4% for the 31B model. Alternating local/global attention and shared KV cache enable 256K context on consumer hardware. Agentic tool use becomes a primary benchmark category.', category: 'Dense Resurgence' },
+      { date: '2026-Q1', actor: 'Multiple Chinese labs', event: 'Xiaomi MiMo V2.5 Pro, DeepSeek V4 Pro, and Qwen3.6-35B-A3B (3B active, 35B total MoE) demonstrate that Chinese labs are systematically closing the gap on efficiency and accessibility rather than chasing raw scale.', category: 'Efficiency Era' },
+      { date: '2026-Apr-22', actor: 'Alibaba Qwen', event: 'Qwen3.6-27B released. 27B dense model beats the 397B-A17B MoE predecessor on every coding benchmark. Gated DeltaNet (O(n) linear attention for 3 in 4 sublayers) + Thinking Preservation + 262K context (1M via YaRN). Apache 2.0. 16.8GB at Q4_K_M. Terminal-Bench 2.0 matches Claude 4.5 Opus exactly at 59.3.', category: 'Dense Resurgence' },
+      { date: '2026-Apr', actor: 'Community', event: 'Rapid adoption: 399,489 Hugging Face downloads in the first month. 183 community quantizations available. Cursor, Windsurf, and Aider integrations documented within days. CUDA 13.2 bug identified (gibberish outputs) - community recommends CUDA 12.x or 13.1.', category: 'Dense Resurgence' },
+      { date: '2026-Apr', actor: 'Competitive context', event: 'Claude 4.5 Opus remains the SWE-bench Verified ceiling at 80.9 (vs Qwen3.6-27B at 77.2). GLM-5.1 leads on SWE-bench Pro but requires enterprise infrastructure. Qwen3.6-27B occupies the most valuable slot: highest open-weight coding performance on consumer hardware.', category: 'Benchmarks' },
+      { date: 'Near-term', actor: 'Qwen team', event: 'Expected: τ2-bench and additional agentic tool use benchmarks. Direct comparison with Gemma 4 on generalised agentic tasks pending. Qwen3.6 Plus (larger variant) rumoured.', category: 'Near-term' },
+    ];
+
+    const TL_COLORS = {
+      'Parameter Era':    '#475569',
+      'MoE Peak':         '#d97706',
+      'Efficiency Era':   '#2563eb',
+      'Dense Resurgence': '#dc2626',
+      'Benchmarks':       '#7c3aed',
+      'Near-term':        '#059669',
+    };
+
+    const SCQA = {
+      situation: {
+        title: 'Situation', color: 'bg-slate-700',
+        points: [
+          'The open-weight model landscape in April 2026 is defined by a set of large MoE architectures at the frontier: Qwen3.5-397B-A17B (397B total, 17B active), Llama 4 Scout (109B total, 17B active), and similar sparse models that achieve large knowledge bases by routing tokens to a small active subset of experts per forward pass.',
+          'MoE models deliver strong benchmarks at manageable inference cost - but they carry architectural overhead: routing logic, expert load balancing, and serving complexity that makes them harder to run efficiently on standard consumer hardware. The 397B Qwen model weighs 807GB and requires infrastructure most development teams do not have.',
+          'Alibaba released Qwen3.6-27B on April 22 2026 under Apache 2.0. It is a dense model - all 27 billion parameters activate on every token. It outperforms the 397B-A17B MoE predecessor on every major coding benchmark it has been evaluated on.',
+        ],
+      },
+      complication: {
+        title: 'Complication', color: 'bg-rose-800',
+        points: [
+          'A 27B dense model beating a 397B MoE on coding benchmarks challenges the intuition that total parameter count is the primary driver of capability. The result is explained by two things: architectural improvements (Gated DeltaNet linear attention replacing standard attention for 3 in 4 sublayers) and a newer training run optimised for real-world utility over leaderboard metrics. Critically, the comparison also conflates two variables - architecture type and training generation. The 397B model is Qwen3.5; the 27B model is Qwen3.6. A newer, better-trained model beating an older, larger model is not a clean proof that dense beats MoE in general - it is evidence that the 3.6 training run was materially better than the 3.5 training run. Both effects are likely real; neither can be cleanly isolated from this comparison alone.',
+          'The Thinking Preservation feature addresses a genuine production failure mode. Standard reasoning models discard their chain-of-thought between turns. In an iterative coding session spanning dozens of exchanges on the same codebase, this means the model repeatedly re-derives context it has already worked through - wasting tokens and introducing inconsistency. No other open-weight model has shipped this capability.',
+          'The benchmark picture has a meaningful caveat: Alibaba\'s SWE-bench results use their own internal agent scaffold. Independent third-party verification on production coding tasks is limited as of April 23 2026. The Terminal-Bench 2.0 score (59.3, matching Claude 4.5 Opus) uses the public Harbor/Terminus-2 harness - a more independently verifiable result and the number to anchor on when the internal scaffold results are uncertain.',
+          'There is a known hardware bug: CUDA 13.2 produces gibberish outputs with Qwen3.6-27B as of April 2026. CUDA 12.x or 13.1 is required. This is not a model defect but is an operational risk for teams that have recently updated their NVIDIA drivers.',
+        ],
+      },
+      question: {
+        title: 'Question', color: 'bg-violet-800',
+        points: [
+          'For a developer building a local coding agent or agentic coding pipeline in April 2026 - does Qwen3.6-27B represent a meaningfully better foundation than Gemma 4, and what does the surrounding harness need to do to extract that value?',
+        ],
+      },
+      answer: {
+        title: 'Answer', color: 'bg-teal-700',
+        points: [
+          '1. For coding-specific workloads, Qwen3.6-27B is the current open-weight choice at the 16-28GB VRAM tier. SWE-bench Verified 77.2%, Terminal-Bench 2.0 59.3% matching Claude 4.5 Opus, SkillsBench 48.2% (60% improvement over the 397B predecessor). The coding evidence is strong - with the caveat that the SWE-bench results use Alibaba\'s internal scaffold and that the 397B comparison mixes architecture type with training generation. The Terminal-Bench 2.0 result on the public harness is the cleanest single number to anchor on.',
+          '2. Gated DeltaNet is the architectural reason the efficiency gain is real, not just a training artifact. Linear O(n) attention for 3 in 4 sublayers means the model scales better at long context than a standard-attention dense model would. The 262K native context window (1M via YaRN) is directly applicable to full-repository code review.',
+          '3. Enable Thinking Preservation for iterative workflows. In a multi-turn coding session the cost saving compounds - each turn avoids re-deriving the same codebase context from scratch. The mechanism is optional and configurable, so it can be disabled for latency-sensitive single-turn use cases.',
+          '4. Q4_K_M is the recommended starting quantization. 16.8GB VRAM, ~60 tokens per second on a 24GB card, 90% of full-precision quality. Avoid CUDA 13.2 - use CUDA 12.x or 13.1 until NVIDIA resolves the driver bug.',
+          '5. Use Gemma 4 for non-coding agentic workflows until Qwen3.6 is benchmarked on generalised tool use. The two models have complementary strengths at this point: Qwen3.6-27B dominates on coding and video; Gemma 4 26B MoE dominates on generalised agentic tool use and edge deployment. A production architecture can route between them by task type.',
+        ],
+      },
+    };
+
+    // ── MAIN ──────────────────────────────────────────────────────────────────────
+    function App() {
+      const [tab, setTab] = useState('scqa');
+      return (
+        <div className="min-h-screen font-sans text-slate-100">
+          <header className="px-4 py-8 border-b border-slate-800"
+            style={{ background: 'linear-gradient(135deg, #0f172a 0%, #3b1a1a 50%, #0f172a 100%)' }}>
+            <div className="max-w-5xl mx-auto">
+              <div className="text-xs font-mono text-red-400 tracking-widest mb-2 uppercase">Alibaba Qwen Team - Qwen3.6-27B - Released April 22 2026 - Apache 2.0</div>
+              <h1 className="text-3xl md:text-5xl font-bold text-white leading-tight tracking-tighter">
+                27B Beats 397B<br className="hidden md:block" /> The Efficiency Architecture Behind Qwen3.6
+              </h1>
+              <p className="text-base text-slate-400 mt-4 font-sans max-w-3xl">Dense beats sparse on coding. Gated DeltaNet linear attention. Thinking Preservation. 262K context. 16.8GB at Q4. Apache 2.0.</p>
+            </div>
+          </header>
+
+          <nav className="bg-slate-900/50 backdrop-blur-xl border-b border-slate-800 sticky top-0 z-10 overflow-x-auto">
+            <div className="flex gap-2 px-4 py-3 min-w-max max-w-5xl mx-auto">
+              {TABS.map(t => (
+                <button key={t.id} onClick={() => setTab(t.id)}
+                  className={`px-4 py-2 text-sm font-sans font-medium rounded-md whitespace-nowrap transition-colors
+                    ${tab === t.id ? 'bg-red-700/90 text-white shadow-lg shadow-red-900/20' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'}`}>
+                  {t.label}
+                </button>
+              ))}
+            </div>
+          </nav>
+
+          <main className="p-4 md:p-6 lg:py-8 max-w-5xl mx-auto">
+            {tab === 'scqa'     && <SCQAView />}
+            {tab === 'timeline' && <TimelineView />}
+            {tab === 'tradeoff' && <HardwarePlanner />}
+            {tab === 'heatmap'  && <UseCaseHeatmap />}
+            {tab === 'inventory'&& <ModelInventory />}
+            {tab === 'vs'       && <VsView />}
+          </main>
+
+          <footer className="text-center text-xs text-slate-500 py-8 border-t border-slate-800 font-sans max-w-5xl mx-auto">
+            Sources: Qwen/Qwen3.6-27B HuggingFace model card (April 22 2026), qwen.ai blog, MarkTechPost, buildfastwithai.com, willitrunai.com (VRAM guide), startupfortune.com, qubrid.com, simonwillison.net. For decision-support only. Benchmark caveats noted inline.
+          </footer>
+        </div>
+      );
+    }
+
+    // ── SCQA ──────────────────────────────────────────────────────────────────────
+    function SCQAView() {
+      const [expanded, setExpanded] = useState('situation');
+      const order = ['situation', 'complication', 'question', 'answer'];
+      return (
+        <div className="space-y-4">
+          <div className="bg-slate-900/50 backdrop-blur-md rounded-xl p-5 border border-slate-800">
+            <h2 className="text-lg font-bold text-white mb-1">SCQA: The Efficiency Architecture Argument</h2>
+            <p className="text-sm text-slate-400">Why a 27B dense model now represents the optimal starting point for a local coding agent - and what it still cannot do.</p>
+          </div>
+          {order.map(key => {
+            const s = SCQA[key]; const isOpen = expanded === key;
+            return (
+              <div key={key} className="rounded-xl overflow-hidden border border-slate-800 transition-all duration-300 shadow-lg bg-slate-900/30">
+                <button onClick={() => setExpanded(isOpen ? null : key)}
+                  className={`w-full ${s.color} bg-opacity-90 text-white px-5 py-4 flex items-center justify-between hover:opacity-100 transition-opacity`}>
+                  <span className="font-bold text-lg">{s.title}</span>
+                  <span className="text-2xl font-light">{isOpen ? '-' : '+'}</span>
+                </button>
+                {isOpen && (
+                  <div className="bg-slate-900/50 p-5 space-y-4">
+                    {s.points.map((p, i) => (
+                      <div key={i} className="flex gap-3 text-sm md:text-base leading-relaxed text-slate-300">
+                        <span className="text-red-400 font-bold shrink-0 mt-0.5">▸</span><span>{p}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4">
+            {[
+              { label: 'SWE-bench Verified', value: '77.2%', sub: 'vs 397B at 76.2% (internal scaffold*)', color: '#dc2626' },
+              { label: 'Terminal-Bench 2.0', value: '59.3%', sub: 'public harness - matches Claude 4.5 Opus', color: '#ea580c' },
+              { label: 'AIME 2026 (maths)', value: '94.1%', sub: 'highest open-weight score', color: '#7c3aed' },
+              { label: 'VRAM at Q4_K_M', value: '16.8GB', sub: 'fits RTX 4080 16GB', color: '#059669' },
+            ].map(s => (
+              <div key={s.label} className="bg-slate-900/50 backdrop-blur-sm border border-slate-800 rounded-xl p-4 text-center">
+                <div className="text-2xl md:text-3xl font-bold font-mono tracking-tight" style={{ color: s.color }}>{s.value}</div>
+                <div className="text-sm text-white font-semibold mt-2">{s.label}</div>
+                <div className="text-xs text-slate-500 mt-1">{s.sub}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    // ── TIMELINE ──────────────────────────────────────────────────────────────────
+    function TimelineView() {
+      const [filter, setFilter] = useState('All');
+      const categories = ['All', ...Object.keys(TL_COLORS)];
+      const filtered = filter === 'All' ? TIMELINE_EVENTS : TIMELINE_EVENTS.filter(t => t.category === filter);
+      return (
+        <div className="space-y-6">
+          <div className="bg-slate-900/50 backdrop-blur-md rounded-xl p-5 border border-slate-800">
+            <h2 className="text-lg font-bold text-white mb-2">The Efficiency Race - From MoE Peak to Dense Resurgence</h2>
+            <p className="text-sm text-slate-400 mb-4">How the open-weight landscape moved from chasing total parameter count to optimising for real-world utility per GPU. Qwen3.6-27B is where this arc currently lands.</p>
+            <div className="flex flex-wrap gap-2">
+              {categories.map(c => (
+                <button key={c} onClick={() => setFilter(c)}
+                  style={filter === c && c !== 'All' ? { backgroundColor: TL_COLORS[c] } : filter === c ? { backgroundColor: '#334155' } : {}}
+                  className={`text-xs md:text-sm px-3 py-1.5 rounded-full font-medium transition-colors ${filter === c ? 'text-white shadow-md' : 'bg-slate-800/80 text-slate-400 hover:bg-slate-700'}`}>
+                  {c}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="relative pl-8 md:pl-10 border-l-2 border-slate-800 space-y-6">
+            {filtered.map((e, i) => (
+              <div key={i} className="relative group">
+                <div className="absolute -left-[41px] md:-left-[49px] w-5 h-5 rounded-full border-4 border-[#020617] shadow-sm transition-transform group-hover:scale-125"
+                  style={{ backgroundColor: TL_COLORS[e.category] }} />
+                <div className="bg-slate-900/40 backdrop-blur-sm rounded-xl p-4 md:p-5 border border-slate-800 hover:bg-slate-900/60 transition-colors">
+                  <div className="flex flex-col md:flex-row md:items-start justify-between gap-3 flex-wrap">
+                    <div className="flex-1 min-w-0">
+                      <div className="text-xs font-mono text-slate-500 tracking-wider uppercase">{e.date}</div>
+                      <div className="text-base font-bold text-white mt-1">{e.actor}</div>
+                      <div className="text-sm text-slate-300 mt-2 leading-relaxed">{e.event}</div>
+                    </div>
+                    <span className="text-xs px-2.5 py-1 rounded-full text-white font-medium shrink-0 self-start mt-1 md:mt-0"
+                      style={{ backgroundColor: TL_COLORS[e.category] }}>
+                      {e.category}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    // ── HARDWARE PLANNER ──────────────────────────────────────────────────────────
+    function HardwarePlanner() {
+      const [selected, setSelected] = useState(4); // Default to Q4_K_M
+
+      const config = HW_CONFIGS[selected];
+      const barData = HW_CONFIGS.map((c, i) => ({
+        name: c.quant.replace(' (recommended)', '').replace('BF16 (full precision)', 'BF16').replace(' (fine-grained)', ''),
+        vram: c.vram,
+        speed: c.speed,
+        quality: c.quality,
+        idx: i,
+      }));
+
+      return (
+        <div className="space-y-6">
+          <div className="bg-slate-900/50 backdrop-blur-md rounded-xl p-5 border border-slate-800">
+            <h2 className="text-lg font-bold text-white mb-2">Hardware Planner - VRAM vs Quality vs Speed</h2>
+            <p className="text-sm text-slate-400">Seven quantization levels from Q2 (last resort) to BF16 (full precision). Select any bar to see hardware requirements and use case guidance.</p>
+            <div className="bg-amber-950/40 border border-amber-800/50 rounded-lg p-3 mt-4 flex items-start gap-3">
+              <span className="text-amber-500 text-lg">⚠️</span>
+              <p className="text-xs md:text-sm text-amber-200/90 font-medium mt-0.5">CUDA 13.2 WARNING: Produces gibberish outputs as of April 2026. Use CUDA 12.x or 13.1 until NVIDIA resolves the driver bug.</p>
+            </div>
+          </div>
+
+          <div className="bg-slate-900/50 backdrop-blur-sm rounded-xl p-5 border border-slate-800">
+            <div className="text-xs font-semibold text-slate-500 uppercase tracking-widest mb-4">Click any bar to select a configuration</div>
+            <div className="h-[350px] w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={barData} margin={{ top: 10, right: 10, left: -20, bottom: 40 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
+                  <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#94a3b8' }} angle={-25} textAnchor="end" interval={0} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+                  <Tooltip 
+                    contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #334155', borderRadius: '8px', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.5)' }} 
+                    labelStyle={{ color: '#f8fafc', fontWeight: 'bold', marginBottom: '4px' }}
+                    itemStyle={{ fontSize: '13px' }}
+                    cursor={{ fill: '#1e293b', opacity: 0.4 }}
+                  />
+                  <Legend wrapperStyle={{ fontSize: 12, color: '#cbd5e1', paddingTop: '20px' }} />
+                  <Bar dataKey="vram" name="VRAM (GB)" fill="#dc2626" radius={[4, 4, 0, 0]}
+                    onClick={(d, i) => setSelected(i)} cursor="pointer">
+                    {barData.map((e, i) => <Cell key={i} fill={i === selected ? '#ef4444' : '#7f1d1d'} className="transition-all duration-300" />)}
+                  </Bar>
+                  <Bar dataKey="quality" name="Quality Score" fill="#059669" radius={[4, 4, 0, 0]}
+                    onClick={(d, i) => setSelected(i)} cursor="pointer">
+                    {barData.map((e, i) => <Cell key={i} fill={i === selected ? '#10b981' : '#14532d'} className="transition-all duration-300" />)}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          <div className={`bg-slate-900/60 backdrop-blur-md rounded-xl p-5 border-2 transition-colors duration-300 ${config.viable ? 'border-slate-700' : 'border-red-900/80 bg-red-950/20'}`}>
+            <div className="flex items-center gap-3 mb-5">
+              <span className="text-lg md:text-xl font-bold text-white">{config.quant}</span>
+              {!config.viable && <span className="text-xs bg-red-900/80 text-red-300 px-2.5 py-1 rounded-md font-bold uppercase tracking-wide border border-red-800">Not Recommended</span>}
+              {config.quant.includes('recommended') && <span className="text-xs bg-teal-900/80 text-teal-300 px-2.5 py-1 rounded-md font-bold uppercase tracking-wide border border-teal-800">Recommended Tier</span>}
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-5">
+              <div className="bg-[#020617] rounded-lg p-4 border border-slate-800/50 shadow-inner">
+                <div className="text-2xl font-bold font-mono text-red-400 mb-1">{config.vram} GB</div>
+                <div className="text-xs text-slate-500 font-medium uppercase tracking-wider">VRAM Required</div>
+              </div>
+              <div className="bg-[#020617] rounded-lg p-4 border border-slate-800/50 shadow-inner">
+                <div className="text-2xl font-bold font-mono text-blue-400 mb-1">~{config.speed} t/s</div>
+                <div className="text-xs text-slate-500 font-medium uppercase tracking-wider">Est. Throughput</div>
+              </div>
+              <div className="bg-[#020617] rounded-lg p-4 border border-slate-800/50 shadow-inner">
+                <div className="text-2xl font-bold font-mono text-teal-400 mb-1">{config.quality}%</div>
+                <div className="text-xs text-slate-500 font-medium uppercase tracking-wider">Quality Index</div>
+              </div>
+            </div>
+            
+            <div className="space-y-3 text-sm">
+              <div className="flex flex-col md:flex-row md:items-baseline gap-1 md:gap-3">
+                <span className="text-slate-500 font-semibold uppercase tracking-wider text-xs md:w-24 shrink-0">Hardware</span>
+                <span className="text-slate-200">{config.hardware}</span>
+              </div>
+              <div className="flex flex-col md:flex-row md:items-baseline gap-1 md:gap-3">
+                <span className="text-slate-500 font-semibold uppercase tracking-wider text-xs md:w-24 shrink-0">Use Case</span>
+                <span className="text-slate-200">{config.useCase}</span>
+              </div>
+              <div className="bg-[#020617] rounded-lg p-4 mt-2 text-slate-400 leading-relaxed border border-slate-800/50 text-sm">
+                {config.note}
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ── USE CASE HEATMAP ──────────────────────────────────────────────────────────
+    function UseCaseHeatmap() {
+      const [sortBy, setSortBy] = useState('coding');
+      const dims = [
+        { key: 'coding', label: 'Coding' },
+        { key: 'reasoning', label: 'Reasoning' },
+        { key: 'context', label: 'Context' },
+        { key: 'privacy', label: 'Privacy' },
+        { key: 'cost', label: 'Cost' },
+        { key: 'multimodal', label: 'Multimodal' },
+      ];
+      const sorted = [...SCENARIOS].sort((a, b) => b[sortBy] - a[sortBy]);
+      const verdictColors = {
+        'Primary use case':     'bg-red-900/60 text-red-300 border-red-700/50',
+        'Strong fit':           'bg-teal-900/60 text-teal-300 border-teal-700/50',
+        'Use Gemma 4':          'bg-blue-900/60 text-blue-300 border-blue-700/50',
+        'Hybrid recommended':   'bg-amber-900/60 text-amber-300 border-amber-700/50',
+      };
+      const scoreColor = v => v >= 9 ? '#34d399' : v >= 7 ? '#fbbf24' : '#f87171';
+
+      return (
+        <div className="space-y-6">
+          <div className="bg-slate-900/50 backdrop-blur-md rounded-xl p-5 border border-slate-800">
+            <h2 className="text-lg font-bold text-white mb-2">Use Case Heatmap</h2>
+            <p className="text-sm text-slate-400 mb-4">Where Qwen3.6-27B is the primary choice, where Gemma 4 is better-evidenced, and where a frontier API remains the ceiling.</p>
+            <div className="flex flex-wrap gap-2">
+              <span className="text-xs text-slate-500 flex items-center mr-2 uppercase tracking-wider font-semibold">Sort By:</span>
+              {dims.map(d => (
+                <button key={d.key} onClick={() => setSortBy(d.key)}
+                  className={`text-xs md:text-sm px-3 py-1.5 rounded-full font-medium transition-colors ${sortBy === d.key ? 'bg-red-700 text-white shadow-md' : 'bg-slate-800/80 text-slate-400 hover:bg-slate-700 hover:text-slate-200'}`}>
+                  {d.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="space-y-4">
+            {sorted.map((s, i) => (
+              <div key={i} className="bg-slate-900/40 backdrop-blur-sm rounded-xl p-5 border border-slate-800 hover:bg-slate-900/60 transition-colors">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4">
+                  <span className="text-base font-bold text-white">{s.scenario}</span>
+                  <span className={`text-xs px-2.5 py-1 rounded-md font-bold uppercase tracking-wider border self-start md:self-auto ${verdictColors[s.verdict]}`}>
+                    {s.verdict}
+                  </span>
+                </div>
+                <div className="grid grid-cols-3 md:grid-cols-6 gap-3 mb-4">
+                  {dims.map(d => (
+                    <div key={d.key} className="bg-[#020617] rounded-lg p-2 md:p-3 text-center border border-slate-800/50">
+                      <div className="text-xl md:text-2xl font-bold font-mono mb-1" style={{ color: scoreColor(s[d.key]) }}>{s[d.key]}</div>
+                      <div className="text-[10px] text-slate-500 uppercase tracking-widest font-semibold">{d.label}</div>
+                    </div>
+                  ))}
+                </div>
+                <p className="text-sm text-slate-300 leading-relaxed bg-[#020617]/50 p-3 rounded-lg border border-slate-800/30">{s.setup}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    // ── MODEL INVENTORY ───────────────────────────────────────────────────────────
+    function ModelInventory() {
+      const [selected, setSelected] = useState(null);
+      const scoreColor = v => v >= 85 ? '#34d399' : v >= 70 ? '#fbbf24' : '#f87171';
+
+      return (
+        <div className="space-y-6">
+          <div className="bg-slate-900/50 backdrop-blur-md rounded-xl p-5 border border-slate-800">
+            <h2 className="text-lg font-bold text-white mb-2">Model Inventory - Benchmarks & Architecture</h2>
+            <p className="text-sm text-slate-400">Verified benchmark scores with caveats noted. Architecture features explained as deployment decisions.</p>
+          </div>
+
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            {[
+              { label: 'HF downloads (Month 1)', value: '399K+', color: '#dc2626' },
+              { label: 'Quantization Formats', value: '183', color: '#7c3aed' },
+              { label: 'BF16 Model Size', value: '55.6GB', color: '#d97706' },
+              { label: 'Prev Flagship Size', value: '807GB', color: '#475569' },
+            ].map(s => (
+              <div key={s.label} className="bg-slate-900/40 backdrop-blur-sm border border-slate-800 rounded-xl p-4 text-center">
+                <div className="text-2xl md:text-3xl font-bold font-mono tracking-tight mb-1" style={{ color: s.color }}>{s.value}</div>
+                <div className="text-[11px] text-slate-400 uppercase tracking-wider font-semibold">{s.label}</div>
+              </div>
+            ))}
+          </div>
+
+          <div className="grid md:grid-cols-2 gap-6 items-start">
+            <div className="bg-slate-900/40 backdrop-blur-sm rounded-xl p-5 border border-slate-800 space-y-4">
+              <div className="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-4">Benchmark Comparison (0-100%)</div>
+              {BENCHMARKS.map((b, i) => (
+                <div key={i} className="bg-[#020617] rounded-lg p-4 border border-slate-800/50 shadow-inner">
+                  <div className="flex flex-col mb-3">
+                    <span className="text-sm font-bold text-slate-100 mb-1">{b.bench}</span>
+                    <span className={`text-[10px] px-2 py-0.5 rounded font-bold uppercase tracking-wider self-start ${
+                      b.category === 'Coding' ? 'bg-red-900/50 text-red-300' : b.category === 'Agentic' ? 'bg-violet-900/50 text-violet-300' : b.category === 'Reasoning' ? 'bg-blue-900/50 text-blue-300' : b.category === 'Multimodal' ? 'bg-teal-900/50 text-teal-300' : 'bg-slate-800 text-slate-300'
+                    }`}>{b.category}</span>
+                  </div>
+                  <div className="space-y-2">
+                    {[
+                      { label: 'Qwen3.6-27B', val: b.qwen36, color: '#ef4444' },
+                      { label: 'Gemma 4 31B', val: b.gemma4_31b, color: '#a855f7' },
+                      { label: 'Claude 4.5 Opus', val: b.claude45opus, color: '#f59e0b' },
+                      { label: 'Qwen3.5-397B', val: b.qwen35_397b, color: '#64748b' },
+                    ].filter(r => r.val !== null).map(r => (
+                      <div key={r.label} className="flex items-center gap-3">
+                        <div className="text-[11px] text-slate-400 w-28 md:w-32 shrink-0 font-medium truncate" title={r.label}>{r.label}</div>
+                        <div className="flex-1 bg-slate-800/80 rounded-full h-2 overflow-hidden">
+                          <div className="h-2 rounded-full" style={{ width: `${r.val}%`, backgroundColor: r.color }} />
+                        </div>
+                        <div className="text-xs font-mono font-bold w-12 text-right" style={{ color: scoreColor(r.val) }}>{r.val}%</div>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-[11px] text-slate-500 mt-3 italic leading-relaxed border-t border-slate-800/50 pt-2">{b.note}</p>
+                </div>
+              ))}
+            </div>
+
+            <div className="bg-slate-900/40 backdrop-blur-sm rounded-xl p-5 border border-slate-800 sticky top-[140px]">
+              <h3 className="text-sm font-bold text-white mb-4 uppercase tracking-widest text-slate-400">Architecture Features</h3>
+              <div className="space-y-3">
+                {ARCH_FEATURES.map((f, i) => (
+                  <div key={i} className="bg-[#020617] rounded-lg overflow-hidden border border-slate-800/50 transition-all duration-300">
+                    <button onClick={() => setSelected(selected === i ? null : i)}
+                      className="w-full px-4 py-3 flex items-center justify-between hover:bg-slate-900/80 transition-colors text-left">
+                      <span className="text-sm font-bold text-red-400">{f.name}</span>
+                      <span className="text-slate-500 shrink-0 ml-2 text-xl font-light">{selected === i ? '-' : '+'}</span>
+                    </button>
+                    {selected === i && (
+                      <div className="px-4 pb-4 bg-slate-900/30">
+                        <p className="text-sm text-slate-300 leading-relaxed border-t border-slate-800/80 pt-3">{f.desc}</p>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ── QWEN vs GEMMA 4 ───────────────────────────────────────────────────────────
+    function VsView() {
+      const [showRadar, setShowRadar] = useState(true);
+
+      const radarData = VS_DIMS.slice(0, 8).map((dim, i) => ({
+        dimension: dim.length > 16 ? dim.slice(0, 16) + '...' : dim,
+        'Qwen3.6-27B': VS_SCORES['Qwen3.6-27B'][i] ?? 0,
+        'Gemma 4 31B': VS_SCORES['Gemma 4 31B'][i] ?? 0,
+        'Gemma 4 26B MoE': VS_SCORES['Gemma 4 26B MoE'][i] ?? 0,
+      }));
+
+      const headToHead = [
+        {
+          dimension: 'Coding (SWE-bench Verified)',
+          qwen: '77.2%', gemma31: 'N/A', gemma_moe: 'N/A',
+          winner: 'qwen', note: 'Qwen3.6-27B leads clearly. No Gemma 4 SWE-bench score published.',
+        },
+        {
+          dimension: 'Agentic tool use (τ2-bench)',
+          qwen: 'N/A', gemma31: '86.4%', gemma_moe: '83.2%',
+          winner: 'gemma', note: 'Gemma 4 holds the τ2-bench record. Qwen3.6 not evaluated here as of April 2026.',
+        },
+        {
+          dimension: 'Maths (AIME 2026)',
+          qwen: '94.1%', gemma31: '89.2%', gemma_moe: '88.3%',
+          winner: 'qwen', note: 'Qwen3.6-27B leads by 5 points on the 2026 maths competition benchmark.',
+        },
+        {
+          dimension: 'Science (GPQA Diamond)',
+          qwen: '87.8%', gemma31: '84.3%', gemma_moe: '82.3%',
+          winner: 'qwen', note: 'Qwen3.6-27B exceeds Claude 4.5 Opus (87.0%) and both Gemma 4 variants.',
+        },
+        {
+          dimension: 'General knowledge (MMLU Pro)',
+          qwen: '86.2%', gemma31: '85.2%', gemma_moe: '84.1%',
+          winner: 'split', note: 'All three cluster within 2 points. Not a meaningful differentiator.',
+        },
+        {
+          dimension: 'Video understanding',
+          qwen: '87.7%', gemma31: 'N/A', gemma_moe: 'N/A',
+          winner: 'qwen', note: 'Qwen3.6-27B leads Claude 4.5 Opus by 10 points. Gemma 4 not evaluated.',
+        },
+        {
+          dimension: 'Min VRAM at Q4',
+          qwen: '~16.8GB', gemma31: '~35GB (2x GPU)', gemma_moe: '~8GB (3.8B act)',
+          winner: 'split', note: 'Gemma 4 MoE wins on active cost. Qwen fits one 24GB card. Gemma 31B needs two.',
+        },
+        {
+          dimension: 'Native context window',
+          qwen: '262K (1M YaRN)', gemma31: '256K', gemma_moe: '256K',
+          winner: 'split', note: 'Equivalent at ~256K. Qwen YaRN 1M extension unique but memory-intensive.',
+        },
+        {
+          dimension: 'Thinking Preservation',
+          qwen: 'Yes', gemma31: 'No', gemma_moe: 'No',
+          winner: 'qwen', note: 'No other open-weight model has cross-turn reasoning preservation as of April 2026.',
+        },
+        {
+          dimension: 'Hardware issues',
+          qwen: 'CUDA 13.2 bug', gemma31: 'None reported', gemma_moe: 'None reported',
+          winner: 'gemma', note: 'Operational risk for auto-updated drivers. Deployment consideration.',
+        },
+      ];
+
+      const winnerColor = w => w === 'qwen' ? '#991b1b' : w === 'gemma' ? '#5b21b6' : '#334155';
+      const winnerLabel = w => w === 'qwen' ? 'Qwen leads' : w === 'gemma' ? 'Gemma leads' : 'Split / Parity';
+
+      return (
+        <div className="space-y-6">
+          <div className="bg-slate-900/50 backdrop-blur-md rounded-xl p-5 border border-slate-800">
+            <h2 className="text-lg font-bold text-white mb-2">Qwen3.6-27B vs Gemma 4 Family</h2>
+            <p className="text-sm text-slate-400 mb-4">
+              Both released in April 2026 under Apache 2.0. Both fit consumer hardware. Complementary strengths - right choice depends on primary workload.
+            </p>
+            <div className="bg-[#020617] rounded-lg p-4 border border-slate-800/50 flex gap-3 items-start">
+              <span className="text-amber-500 text-lg leading-none">ℹ️</span>
+              <p className="text-xs text-slate-400 leading-relaxed m-0">
+                <span className="text-amber-400 font-bold uppercase tracking-wider">Asymmetric Benchmark Caveat: </span>
+                Some metrics below lack cross-evaluations (e.g., Qwen lacks τ2-bench; Gemma lacks SWE-bench). Shown as 0 or N/A.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex gap-2 justify-center">
+            {['Radar', 'Table'].map(m => (
+              <button key={m} onClick={() => setShowRadar(m === 'Radar')}
+                className={`text-sm px-6 py-2 rounded-full font-bold transition-all ${showRadar === (m === 'Radar') ? 'bg-red-700 text-white shadow-lg' : 'bg-slate-800/80 text-slate-400 hover:bg-slate-700 hover:text-slate-200 border border-slate-700'}`}>
+                {m} View
+              </button>
+            ))}
+          </div>
+
+          {showRadar ? (
+            <div className="bg-slate-900/40 backdrop-blur-sm rounded-xl p-5 border border-slate-800 fade-in">
+              <div className="text-xs font-semibold text-slate-500 uppercase tracking-widest mb-1 text-center">Normalised Relative Capability (0-10)</div>
+              <div className="text-[10px] text-slate-600 mb-4 text-center">Data availability heavily influences shape. Not a strict superiority map.</div>
+              <div className="h-[400px] w-full max-w-2xl mx-auto">
+                <ResponsiveContainer width="100%" height="100%">
+                  <RadarChart data={radarData} margin={{ top: 20, right: 30, bottom: 20, left: 30 }}>
+                    <PolarGrid stroke="#1e293b" />
+                    <PolarAngleAxis dataKey="dimension" tick={{ fontSize: 11, fill: '#94a3b8' }} />
+                    <PolarRadiusAxis domain={[0, 10]} tick={{ fontSize: 10, fill: '#475569' }} tickCount={5} angle={30} />
+                    {Object.keys(VS_SCORES).map(m => (
+                      <Radar key={m} name={m} dataKey={m} stroke={VS_COLORS[m]} fill={VS_COLORS[m]} fillOpacity={0.15} strokeWidth={2.5} />
+                    ))}
+                    <Legend wrapperStyle={{ fontSize: 12, color: '#e2e8f0', paddingTop: '10px' }} />
+                    <Tooltip 
+                      contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #334155', borderRadius: '8px' }} 
+                      labelStyle={{ color: '#f8fafc', fontWeight: 'bold' }} 
+                      itemStyle={{ fontSize: '12px' }}
+                    />
+                  </RadarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 fade-in">
+              {headToHead.map((h, i) => (
+                <div key={i} className="bg-slate-900/40 backdrop-blur-sm rounded-xl p-4 border border-slate-800 hover:bg-slate-900/60 transition-colors">
+                  <div className="flex items-center justify-between gap-3 mb-3 pb-2 border-b border-slate-800/50">
+                    <span className="text-sm font-bold text-white truncate pr-2">{h.dimension}</span>
+                    <span className="text-[10px] px-2.5 py-1 rounded-md text-white font-bold uppercase tracking-wider shrink-0"
+                      style={{ backgroundColor: winnerColor(h.winner) }}>
+                      {winnerLabel(h.winner)}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-3 mb-3">
+                    {[
+                      { label: 'Qwen 27B', val: h.qwen, color: '#ef4444' },
+                      { label: 'Gemma 31B', val: h.gemma31, color: '#a855f7' },
+                      { label: 'Gemma 26B MoE', val: h.gemma_moe, color: '#3b82f6' },
+                    ].map(c => (
+                      <div key={c.label} className="bg-[#020617] rounded-lg p-2 text-center border border-slate-800/30">
+                        <div className="text-[10px] font-bold mb-1 uppercase tracking-wider truncate" style={{ color: c.color }}>{c.label}</div>
+                        <div className="text-sm font-mono text-slate-200">{c.val}</div>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-[11px] text-slate-400 italic leading-relaxed">{h.note}</p>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div className="grid md:grid-cols-2 gap-4 mt-6">
+            {[
+              {
+                title: 'Route to Qwen3.6-27B when:',
+                color: '#ef4444', borderInfo: 'border-red-900/30 bg-red-950/10',
+                items: [
+                  'Task is coding (repository-level, agentic, frontend, or terminal-based)',
+                  'Workflow is multi-turn iterative (Thinking Preservation saves tokens)',
+                  'Input includes video (VideoMME 87.7%)',
+                  'Context depth matters (262K native window for full codebase review)',
+                ],
+              },
+              {
+                title: 'Route to Gemma 4 when:',
+                color: '#a855f7', borderInfo: 'border-violet-900/30 bg-violet-950/10',
+                items: [
+                  'Task is generalised agentic tool use (τ2-bench 86.4% record)',
+                  'Deployment target is edge/mobile (E2B/E4B run on Raspberry Pi)',
+                  'CUDA 13.2 is unavoidable on target hardware',
+                  'Architectural simplicity matters for serving stack',
+                ],
+              },
+            ].map(s => (
+              <div key={s.title} className={`rounded-xl p-5 border ${s.borderInfo} backdrop-blur-sm`}>
+                <div className="text-sm font-bold mb-4 uppercase tracking-wider" style={{ color: s.color }}>{s.title}</div>
+                <div className="space-y-3">
+                  {s.items.map((item, i) => (
+                    <div key={i} className="flex gap-2 text-sm text-slate-300">
+                      <span className="shrink-0 mt-0.5 font-bold" style={{ color: s.color }}>▸</span>
+                      <span className="leading-relaxed">{item}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    // Initialize React App
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
